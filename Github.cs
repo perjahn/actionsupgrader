@@ -17,8 +17,7 @@ public class Github
     static ProductInfoHeaderValue UserAgent { get; set; } = new("useragent", "1.0");
     static int PerPage { get; set; } = 100;
     static JsonSerializerOptions JsonOptions { get; set; } = new() { WriteIndented = true };
-    static int Retries { get; set; } = 3;
-    static ILogger Logger = LoggerFactory.Create(b => b.AddSimpleConsole(options => { options.TimestampFormat = "HH:mm:ss "; })).CreateLogger<Github>();
+    static readonly ILogger Logger = LoggerFactory.Create(b => b.AddSimpleConsole(options => { options.TimestampFormat = "HH:mm:ss "; })).CreateLogger<Github>();
 
     public static async Task<List<GithubRepository>> GetAllRepos(string entity)
     {
@@ -33,11 +32,11 @@ public class Github
         {
             Logger.LogInformation("Using repo list from: '{Filename}'", filename);
             var reponames = File.ReadAllLines(filename);
-            var shortEntity = entity.Split('/')[1];
+            var owner = entity.Split('/')[1];
 
             foreach (var reponame in reponames)
             {
-                var repoAddress = $"repos/{shortEntity}/{reponame}";
+                var repoAddress = $"repos/{owner}/{reponame}";
 
                 Logger.LogInformation("Getting repo: '{RepoAddress}'", repoAddress);
                 using var response = await client.GetAsync(repoAddress);
@@ -231,7 +230,7 @@ public class Github
         return tags;
     }
 
-    public static async Task<List<GithubPR>> GetPRs(string entity, string repo)
+    public static async Task<List<GithubPR>> GetPRs(string owner, string repo)
     {
         using var client = new HttpClient { BaseAddress = BaseAdress };
         client.DefaultRequestHeaders.Authorization = AuthHeader;
@@ -239,8 +238,7 @@ public class Github
 
         List<GithubPR> prs = [];
 
-        var shortEntity = entity.Split('/')[1];
-        var address = $"repos/{shortEntity}/{repo}/pulls?per_page={PerPage}";
+        var address = $"repos/{owner}/{repo}/pulls?per_page={PerPage}";
         while (address != string.Empty)
         {
             Logger.LogInformation("Getting PRs: '{Address}'", address);
@@ -317,6 +315,48 @@ public class Github
         }
 
         Logger.LogInformation("Created PR.");
+    }
+
+    public static async Task UpdatePR(string owner, string repo, int number, string title, string message, string branchFrom, string branchTo, bool dryRun)
+    {
+        using var client = new HttpClient { BaseAddress = BaseAdress };
+        client.DefaultRequestHeaders.Authorization = AuthHeader;
+        client.DefaultRequestHeaders.UserAgent.Add(UserAgent);
+
+        var address = $"repos/{owner}/{repo}/pulls/{number}";
+        Logger.LogInformation("Updating PR: '{Address}'", address);
+
+        var prpayload = new GithubPRPayload()
+        {
+            title = title,
+            body = message,
+            head = branchFrom,
+            basex = branchTo
+        };
+        using var stringContent = new StringContent(JsonSerializer.Serialize(prpayload));
+
+        try
+        {
+            if (!dryRun)
+            {
+                var response = await client.PatchAsync(address, stringContent);
+                if (!response.IsSuccessStatusCode)
+                {
+                    Logger.LogError("Patch '{Address}', StatusCode: {StatusCode}", address, response.StatusCode);
+                }
+                var content = await response.Content.ReadAsStringAsync();
+                if (!response.IsSuccessStatusCode)
+                {
+                    Logger.LogError("Result: >>>{Content}<<<", content);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError("Patch '{Address}', Payload: >>>{Content}<<<, Exception: >>>{Exception}<<<", address, stringContent, ex);
+        }
+
+        Logger.LogInformation("Updated PR.");
     }
 
     static List<GithubRepository>? LoadCachedTeamRepositories(string shortFilename, string ext)

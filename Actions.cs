@@ -20,7 +20,7 @@ class UpdateStep
 
 class Actions
 {
-    static ILogger Logger = LoggerFactory.Create(b => b.AddSimpleConsole(options => { options.TimestampFormat = "HH:mm:ss "; })).CreateLogger<Actions>();
+    static readonly ILogger Logger = LoggerFactory.Create(b => b.AddSimpleConsole(options => { options.TimestampFormat = "HH:mm:ss "; })).CreateLogger<Actions>();
 
     public static int GetDefaultParallelism()
     {
@@ -103,26 +103,45 @@ class Actions
 
             Logger.LogInformation("Repo: '{RepoFolder}'", repoFolder);
 
+            var defaultBranch = Git.GetCurrentBranch(repoFolder);
+            Logger.LogInformation("Git default branch: '{DefaultBranch}'", defaultBranch);
+
+            var owner = entity.Split('/')[1];
+
+            var prs = await Github.GetPRs(owner, repoName);
+            foreach (var pr in prs)
+            {
+                Logger.LogInformation("PR: Title: '{Title}', Head (from): '{From}', Base (to): '{To}'", pr.title, pr.head.refx, pr.basex.refx);
+            }
+
+            var foundIdenticalPR = prs.FirstOrDefault(pr => pr.head.refx.Length == remoteBranch.Length && pr.head.refx.StartsWith("actionsupgrader-") && pr.title == title && pr.body == message);
+            if (foundIdenticalPR != null)
+            {
+                Logger.LogInformation("Not updating PR: '{Title}'", foundIdenticalPR.title);
+                continue;
+            }
+
             Logger.LogInformation("Git user name: '{GitUserName}'", Config.GitUserName);
             Git.SetConfig(repoFolder, "user.name", Config.GitUserName);
 
             Logger.LogInformation("Git user email: '{GitUserEmail}'", Config.GitUserEmail);
             Git.SetConfig(repoFolder, "user.email", Config.GitUserEmail);
 
-            var defaultBranch = Git.GetCurrentBranch(repoFolder);
-            Logger.LogInformation("Git default branch: '{DefaultBranch}'", defaultBranch);
-
             Git.Commit(repoFolder, title);
 
             Git.Push(repoFolder, remoteBranch, dryRun);
 
-            var prs = await Github.GetPRs(entity, repoName);
-            foreach (var pr in prs)
+            var foundPR = prs.FirstOrDefault(pr => pr.head.refx.Length == remoteBranch.Length && pr.head.refx.StartsWith("actionsupgrader-"));
+            if (foundPR == null)
             {
-                Logger.LogInformation("PR: '{Title}'", pr.title);
+                Logger.LogInformation("Creating PR: '{Title}'", title);
+                await Github.CreatePR(owner, repoName, title, message, remoteBranch, defaultBranch, dryRun);
             }
-
-            await Github.CreatePR(entity, repoName, title, message, remoteBranch, defaultBranch, dryRun);
+            else
+            {
+                Logger.LogInformation("Updating PR: '{Title}'", foundPR.title);
+                await Github.UpdatePR(owner, repoName, foundPR.number, title, message, remoteBranch, defaultBranch, dryRun);
+            }
         }
 
         return success;
@@ -392,22 +411,6 @@ class Actions
 
         return steps;
     }
-
-    /*
-    sha1
-    sha256
-    tag
-    branch
-
-    abcdef0123456789abcdef0123456789abcdef01
-    branchname
-    main
-    master
-    sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
-    v1
-    v1.2
-    v1.2.3
-    */
 
     static (string ownerRepo, string version)? GetStepOwnerRepoVersion(string stepName)
     {

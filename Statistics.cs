@@ -12,7 +12,7 @@ class StatItem
 
 class Statistics
 {
-    static string[] StatisticsHeaders = ["Action", "Repos", "Steps"];
+    static readonly string[] StatisticsHeaders = ["Action", "Repos", "Steps"];
 
     public static void ShowStatistics(List<UpdateStep> stepsToUpdate)
     {
@@ -72,7 +72,7 @@ class Statistics
         }
 
         Console.Write("Total".PadRight(columnWidths[0] + 1));
-        Console.Write(statistics.Sum(s => s.Value.Repos.Count).ToString().PadLeft(columnWidths[1] + 1));
+        Console.Write(stepsToUpdate.GroupBy(s => s.RepoName).Count().ToString().PadLeft(columnWidths[1] + 1));
         Console.WriteLine(statistics.Sum(s => s.Value.StepCount).ToString().PadLeft(columnWidths[2] + 1));
     }
 }

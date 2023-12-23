@@ -1,4 +1,3 @@
-using System;
 using System.Text.Json.Serialization;
 
 public class GithubRepository
@@ -17,7 +16,24 @@ public class GithubTag
 
 public class GithubPR
 {
+    public int number { get; set; } = 0;
     public string title { get; set; } = string.Empty;
+    public string body { get; set; } = string.Empty;
+    public GithubPRHead head { get; set; } = new();
+    [JsonPropertyName("base")]
+    public GithubPRBase basex { get; set; } = new();
+}
+
+public class GithubPRHead
+{
+    [JsonPropertyName("ref")]
+    public string refx { get; set; } = string.Empty;
+}
+
+public class GithubPRBase
+{
+    [JsonPropertyName("ref")]
+    public string refx { get; set; } = string.Empty;
 }
 
 public class GithubPRPayload

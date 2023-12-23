@@ -33,6 +33,7 @@ class Git
     public static void Push(string repoFolder, string remoteBranch, bool dryRun)
     {
         var startInfo = new ProcessStartInfo("git", $"push origin HEAD:{remoteBranch}") { WorkingDirectory = repoFolder };
+        Console.WriteLine($"Pushing to {remoteBranch}: '{startInfo.FileName}' '{startInfo.Arguments}'");
         if (!dryRun)
         {
             Process.Start(startInfo)?.WaitForExit();
