@@ -2,18 +2,16 @@ using System.Collections.Generic;
 
 class ArgumentParser
 {
-    public static string String(List<string> args, string flagname, string defaultValue, out bool specified)
+    public static string String(List<string> args, string flagname, string defaultValue)
     {
         var index = args.IndexOf(flagname);
         if (index < 0 || index > args.Count - 2)
         {
-            specified = false;
             return defaultValue;
         }
 
         var value = args[index + 1];
         args.RemoveRange(index, 2);
-        specified = true;
         return value;
     }
 

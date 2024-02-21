@@ -10,10 +10,10 @@ class Program
 
         var dontClone = ArgumentParser.Flag(parsedArgs, "-c");
         var dryRun = ArgumentParser.Flag(parsedArgs, "-d");
-        var excludeRepos = ArgumentParser.String(parsedArgs, "-e", string.Empty, out _);
-        var folder = ArgumentParser.String(parsedArgs, "-f", "/tmp/actionsupgrader_repos", out _);
-        var combinePRs = !ArgumentParser.Flag(parsedArgs, "-s");
-        var teams = ArgumentParser.String(parsedArgs, "-t", string.Empty, out _);
+        var excludeRepos = ArgumentParser.String(parsedArgs, "-e", string.Empty);
+        var folder = ArgumentParser.String(parsedArgs, "-f", "/tmp/actionsupgrader_repos");
+        var splitPRs = ArgumentParser.Flag(parsedArgs, "-s");
+        var teams = ArgumentParser.String(parsedArgs, "-t", string.Empty);
         var isUser = ArgumentParser.Flag(parsedArgs, "-u");
         var entity = (isUser ? "users/" : "orgs/") + Config.GithubOrgName;
 
@@ -47,7 +47,7 @@ class Program
         var success = await Actions.UpdateActions(entity, folder,
             excludeRepos.Split(',', StringSplitOptions.RemoveEmptyEntries),
             teams.Split(',', StringSplitOptions.RemoveEmptyEntries),
-            dontClone, combinePRs, dryRun);
+            dontClone, splitPRs, dryRun);
 
         return success ? 0 : 1;
     }

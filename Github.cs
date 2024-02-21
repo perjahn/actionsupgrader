@@ -21,7 +21,7 @@ public class Github
 
     public static async Task<List<GithubRepository>> GetAllRepos(string entity)
     {
-        using var client = new HttpClient { BaseAddress = BaseAdress };
+        using HttpClient client = new() { BaseAddress = BaseAdress };
         client.DefaultRequestHeaders.Authorization = AuthHeader;
         client.DefaultRequestHeaders.UserAgent.Add(UserAgent);
 
@@ -102,7 +102,7 @@ public class Github
 
     public static async Task<List<GithubRepository>> GetAllTeamRepositories(string entity, string[] teamnames)
     {
-        using var client = new HttpClient { BaseAddress = BaseAdress };
+        using HttpClient client = new() { BaseAddress = BaseAdress };
         client.DefaultRequestHeaders.Authorization = AuthHeader;
         client.DefaultRequestHeaders.UserAgent.Add(UserAgent);
 
@@ -184,7 +184,7 @@ public class Github
             return cachedTags.Select(t => (t.Split(' ')[0], t.Split(' ')[1])).ToList();
         }
 
-        using var client = new HttpClient { BaseAddress = BaseAdress };
+        using HttpClient client = new() { BaseAddress = BaseAdress };
         client.DefaultRequestHeaders.Authorization = AuthHeader;
         client.DefaultRequestHeaders.UserAgent.Add(UserAgent);
 
@@ -232,7 +232,7 @@ public class Github
 
     public static async Task<List<GithubPR>> GetPRs(string owner, string repo)
     {
-        using var client = new HttpClient { BaseAddress = BaseAdress };
+        using HttpClient client = new() { BaseAddress = BaseAdress };
         client.DefaultRequestHeaders.Authorization = AuthHeader;
         client.DefaultRequestHeaders.UserAgent.Add(UserAgent);
 
@@ -277,21 +277,21 @@ public class Github
 
     public static async Task CreatePR(string owner, string repo, string title, string message, string branchFrom, string branchTo, bool dryRun)
     {
-        using var client = new HttpClient { BaseAddress = BaseAdress };
+        using HttpClient client = new() { BaseAddress = BaseAdress };
         client.DefaultRequestHeaders.Authorization = AuthHeader;
         client.DefaultRequestHeaders.UserAgent.Add(UserAgent);
 
         var address = $"repos/{owner}/{repo}/pulls";
         Logger.LogInformation("Creating PR: '{Address}'", address);
 
-        var prpayload = new GithubPRPayload()
+        GithubPRPayload prpayload = new()
         {
             title = title,
             body = message,
             head = branchFrom,
             basex = branchTo
         };
-        using var stringContent = new StringContent(JsonSerializer.Serialize(prpayload));
+        using StringContent stringContent = new(JsonSerializer.Serialize(prpayload));
 
         try
         {
@@ -319,21 +319,21 @@ public class Github
 
     public static async Task UpdatePR(string owner, string repo, int number, string title, string message, string branchFrom, string branchTo, bool dryRun)
     {
-        using var client = new HttpClient { BaseAddress = BaseAdress };
+        using HttpClient client = new() { BaseAddress = BaseAdress };
         client.DefaultRequestHeaders.Authorization = AuthHeader;
         client.DefaultRequestHeaders.UserAgent.Add(UserAgent);
 
         var address = $"repos/{owner}/{repo}/pulls/{number}";
         Logger.LogInformation("Updating PR: '{Address}'", address);
 
-        var prpayload = new GithubPRPayload()
+        GithubPRPayload prpayload = new()
         {
             title = title,
             body = message,
             head = branchFrom,
             basex = branchTo
         };
-        using var stringContent = new StringContent(JsonSerializer.Serialize(prpayload));
+        using StringContent stringContent = new(JsonSerializer.Serialize(prpayload));
 
         try
         {
@@ -431,7 +431,7 @@ public class Github
 
     static string CleanFileName(string filename)
     {
-        var result = new StringBuilder();
+        StringBuilder result = new();
         foreach (var c in filename)
         {
             if (char.IsAsciiLetterOrDigit(c) || c == '_' || c == '-')
@@ -443,6 +443,6 @@ public class Github
                 result.Append($"%{c:X}");
             }
         }
-        return result.ToString();
+        return result.Length > 50 ? result.ToString()[..50] : result.ToString();
     }
 }

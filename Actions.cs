@@ -16,6 +16,7 @@ class UpdateStep
     public string OwnerRepo { get; set; } = string.Empty;
     public string OldVersion { get; set; } = string.Empty;
     public string Version { get; set; } = string.Empty;
+    public bool Pushed { get; set; } = false;
 }
 
 class Actions
@@ -44,7 +45,7 @@ class Actions
         return cores;
     }
 
-    public static async Task<bool> UpdateActions(string entity, string folder, string[] excludeRepos, string[] teams, bool dontClone, bool combinePRs, bool dryRun)
+    public static async Task<bool> UpdateActions(string entity, string folder, string[] excludeRepos, string[] teams, bool dontClone, bool splitPRs, bool dryRun)
     {
         var now = DateTime.Now;
 
@@ -59,16 +60,16 @@ class Actions
 
         var steps = await GetStepsToUpdate(folder);
 
-        var success = await CreatePRs(entity, steps, combinePRs, now, dryRun);
+        var success = await CreatePRs(entity, steps, splitPRs, now, dryRun);
 
         Statistics.ShowStatistics(steps);
 
         return success;
     }
 
-    static async Task<bool> CreatePRs(string entity, List<UpdateStep> steps, bool combinePRs, DateTime now, bool dryRun)
+    static async Task<bool> CreatePRs(string entity, List<UpdateStep> steps, bool splitPRs, DateTime now, bool dryRun)
     {
-        if (!combinePRs)
+        if (splitPRs)
         {
             throw new NotImplementedException("Non-combined PRs are not yet supported.");
         }
@@ -119,6 +120,10 @@ class Actions
             {
                 Logger.LogInformation("Not updating PR: '{Title}'", foundIdenticalPR.title);
                 continue;
+            }
+            foreach (var step in repo)
+            {
+                step.Pushed = true;
             }
 
             Logger.LogInformation("Git user name: '{GitUserName}'", Config.GitUserName);
@@ -447,12 +452,11 @@ class Actions
         }
         Directory.CreateDirectory(folder);
 
-        var repoResult = await GetRepos(entity, excludeRepos, teams);
-        if (!repoResult.success)
+        var repourls = await GetRepos(entity, excludeRepos, teams);
+        if (repourls == null)
         {
             return false;
         }
-        var repourls = repoResult.repourls;
 
         List<Process> processes = [];
 
@@ -525,7 +529,7 @@ class Actions
         return true;
     }
 
-    static async Task<(string[] repourls, bool success)> GetRepos(string entity, string[] excludeRepos, string[] teams)
+    static async Task<string[]?> GetRepos(string entity, string[] excludeRepos, string[] teams)
     {
         var repos = (teams.Length == 0 ?
             (await Github.GetAllRepos(entity)) :
@@ -534,7 +538,7 @@ class Actions
         if (repos.Length == 0)
         {
             Logger.LogInformation("Error: No repos found for: '{Entity}'", entity);
-            return ([], false);
+            return null;
         }
         Logger.LogInformation("Found {RepoCount} repos.", repos.Length);
 
@@ -586,7 +590,7 @@ class Actions
         Array.Sort(repourls);
         Logger.LogInformation("Filtered to {RepoCount} repos ({ArchivedCount} archived, {ExcludedCount} excluded, {InvalidCount} invalid).", repourls.Length, archived, excluded, invalid);
 
-        return (repourls, true);
+        return repourls;
     }
 
     static string SubstringAfterNthIndexOf(string text, char find, int number)
