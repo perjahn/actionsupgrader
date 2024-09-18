@@ -6,7 +6,8 @@ public class GithubRepository
     public string clone_url { get; set; } = string.Empty;
     //public string default_branch { get; set; } = string.Empty;
     public string role_name { get; set; } = string.Empty;
-    public bool archived { get; set; } = false;
+    public bool archived { get; set; }
+    public int size { get; set; }
 }
 
 public class GithubTag
@@ -16,7 +17,7 @@ public class GithubTag
 
 public class GithubPR
 {
-    public int number { get; set; } = 0;
+    public int number { get; set; }
     public string title { get; set; } = string.Empty;
     public string body { get; set; } = string.Empty;
     public GithubPRHead head { get; set; } = new();

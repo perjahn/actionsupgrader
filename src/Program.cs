@@ -12,6 +12,7 @@ class Program
         var dryRun = ArgumentParser.Flag(parsedArgs, "-d");
         var excludeRepos = ArgumentParser.String(parsedArgs, "-e", string.Empty);
         var folder = ArgumentParser.String(parsedArgs, "-f", "/tmp/actionsupgrader_repos");
+        var maxsizekb = ArgumentParser.Int(parsedArgs, "-m", -1);
         var splitPRs = ArgumentParser.Flag(parsedArgs, "-s");
         var teams = ArgumentParser.String(parsedArgs, "-t", string.Empty);
         var isUser = ArgumentParser.Flag(parsedArgs, "-u");
@@ -24,12 +25,13 @@ class Program
             Config.GitUserEmail == string.Empty)
         {
             var usage =
-                "Usage: actionsupgrader [-c] [-d] [-e repo] [-f folder] [-s] [-t team] [-u]\n" +
+                "Usage: actionsupgrader [-c] [-d] [-e repo] [-f folder] [-m size] [-s] [-t team] [-u]\n" +
                 "\n" +
                 "-c:   Don't clone any repos, assume they are already in the local file system.\n" +
                 "-d:   Dry-run, don't push/skip PR creation and only update the local repos.\n" +
                 "-e:   Comma separated list of repo names to exclude.\n" +
                 "-f:   Scratch folder, default is '/tmp/actionsupgrader_repos'\n" +
+                "-m:   Filter repos for max size in kb of the .git folder, transferred over the network.\n" +
                 "-s:   Split PRs, create one PR per action.\n" +
                 "-t:   Only update repos for particular team. Comma separated list of team names.\n" +
                 "-u:   Github user instead of organization.\n" +
@@ -47,6 +49,7 @@ class Program
         var success = await Actions.UpdateActions(entity, folder,
             excludeRepos.Split(',', StringSplitOptions.RemoveEmptyEntries),
             teams.Split(',', StringSplitOptions.RemoveEmptyEntries),
+            maxsizekb,
             dontClone, splitPRs, dryRun);
 
         return success ? 0 : 1;

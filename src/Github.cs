@@ -21,6 +21,8 @@ public class Github
 
     public static async Task<List<GithubRepository>> GetAllRepos(string entity)
     {
+        ArgumentNullException.ThrowIfNull(entity);
+
         using HttpClient client = new() { BaseAddress = BaseAdress };
         client.DefaultRequestHeaders.Authorization = AuthHeader;
         client.DefaultRequestHeaders.UserAgent.Add(UserAgent);
@@ -106,9 +108,8 @@ public class Github
         client.DefaultRequestHeaders.Authorization = AuthHeader;
         client.DefaultRequestHeaders.UserAgent.Add(UserAgent);
 
-        var allteamrepos = (await Task.WhenAll(teamnames.Select(t => GetTeamRepositories(client, entity, t))))
-           .SelectMany(t => t)
-           .ToList();
+        List<GithubRepository> allteamrepos = [.. (await Task.WhenAll(teamnames.Select(t => GetTeamRepositories(client, entity, t))))
+           .SelectMany(t => t)];
 
         foreach (var repo in allteamrepos)
         {
@@ -176,12 +177,14 @@ public class Github
 
     public static async Task<List<(string ownerRepo, string tag)>> GetRepoTags(string[] ownerRepos)
     {
+        ArgumentNullException.ThrowIfNull(ownerRepos);
+
         var filename = "tags.txt";
         if (File.Exists(filename))
         {
             Logger.LogInformation("Using cached tags from: '{Filename}'", filename);
             var cachedTags = File.ReadAllLines(filename);
-            return cachedTags.Select(t => (t.Split(' ')[0], t.Split(' ')[1])).ToList();
+            return [.. cachedTags.Select(t => (t.Split(' ')[0], t.Split(' ')[1]))];
         }
 
         using HttpClient client = new() { BaseAddress = BaseAdress };
@@ -378,7 +381,7 @@ public class Github
         if (!Directory.Exists(CacheFolder))
         {
             Logger.LogInformation("Creating folder: '{CacheFolder}'", CacheFolder);
-            Directory.CreateDirectory(CacheFolder);
+            _ = Directory.CreateDirectory(CacheFolder);
         }
 
         var filename = Path.Combine(CacheFolder, $"{shortFilename}{ext}");
@@ -414,7 +417,7 @@ public class Github
     {
         if (headers.Contains("Link"))
         {
-            var links = headers.GetValues("Link").SelectMany(l => l.Split(',')).ToArray();
+            string[] links = [.. headers.GetValues("Link").SelectMany(l => l.Split(','))];
             foreach (var link in links)
             {
                 var parts = link.Split(';');
@@ -434,14 +437,7 @@ public class Github
         StringBuilder result = new();
         foreach (var c in filename)
         {
-            if (char.IsAsciiLetterOrDigit(c) || c == '_' || c == '-')
-            {
-                result.Append(c);
-            }
-            else
-            {
-                result.Append($"%{c:X}");
-            }
+            _ = char.IsAsciiLetterOrDigit(c) || c == '_' || c == '-' ? result.Append(c) : result.Append($"%{c:X}");
         }
         return result.Length > 50 ? result.ToString()[..50] : result.ToString();
     }

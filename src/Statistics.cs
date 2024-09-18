@@ -7,7 +7,7 @@ class StatItem
 {
     public List<string> Repos { get; set; } = [];
     public List<(string from, string to)> VersionPairs { get; set; } = [];
-    public int StepCount { get; set; } = 0;
+    public int StepCount { get; set; }
 }
 
 class Statistics

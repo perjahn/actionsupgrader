@@ -16,7 +16,7 @@ class UpdateStep
     public string OwnerRepo { get; set; } = string.Empty;
     public string OldVersion { get; set; } = string.Empty;
     public string Version { get; set; } = string.Empty;
-    public bool Pushed { get; set; } = false;
+    public bool Pushed { get; set; }
 }
 
 class Actions
@@ -45,13 +45,13 @@ class Actions
         return cores;
     }
 
-    public static async Task<bool> UpdateActions(string entity, string folder, string[] excludeRepos, string[] teams, bool dontClone, bool splitPRs, bool dryRun)
+    public static async Task<bool> UpdateActions(string entity, string folder, string[] excludeRepos, string[] teams, int maxsizekb, bool dontClone, bool splitPRs, bool dryRun)
     {
         var now = DateTime.Now;
 
         if (!dontClone)
         {
-            var cloneresult = await CloneRepos(entity, folder, excludeRepos, teams);
+            var cloneresult = await CloneRepos(entity, folder, excludeRepos, teams, maxsizekb);
             if (!cloneresult)
             {
                 return false;
@@ -74,13 +74,13 @@ class Actions
             throw new NotImplementedException("Non-combined PRs are not yet supported.");
         }
 
-        var repoSteps = steps.GroupBy(s => s.RepoName).OrderBy(s => s.Key).ToArray();
+        IGrouping<string, UpdateStep>[] repoSteps = [.. steps.GroupBy(s => s.RepoName).OrderBy(s => s.Key)];
 
         var success = true;
 
         foreach (var repo in repoSteps)
         {
-            var workflowFileSteps = repo.GroupBy(s => s.WorkflowFile).OrderBy(s => s.Key).ToArray();
+            IGrouping<string, UpdateStep>[] workflowFileSteps = [.. repo.GroupBy(s => s.WorkflowFile).OrderBy(s => s.Key)];
 
             foreach (var workflowFile in workflowFileSteps)
             {
@@ -227,17 +227,15 @@ class Actions
         var steps = GetSteps(workflowFiles);
         Logger.LogInformation("Steps: {StepCount}", steps.Count);
 
-        var ownerRepos = steps
+        string[] ownerRepos = [.. steps
             .Select(s => s.OwnerRepo)
-            .Distinct()
-            .ToArray();
+            .Distinct()];
         Logger.LogInformation("ActionRepos: {ActionRepoCount}", ownerRepos.Length);
 
-        var tags = (await Github.GetRepoTags(ownerRepos))
+        (string ownerRepo, string tag)[] tags = [.. (await Github.GetRepoTags(ownerRepos))
             .Where(t => IsNumericTag(t.tag))
             .OrderBy(t => t.ownerRepo)
-            .ThenBy(t => t.tag)
-            .ToArray();
+            .ThenBy(t => t.tag)];
         Logger.LogInformation("Tags: {TagCount}", tags.Length);
 
         List<UpdateStep> stepsToUpdate = [];
@@ -431,8 +429,8 @@ class Actions
             return null;
         }
 
-        if ((version.Length == 40 && version.All(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) ||
-            (version.Length == 71 && version.StartsWith("sha256:") && version[7..].All(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))))
+        if ((version.Length == 40 && version.All(c => c is (>= '0' and <= '9') or (>= 'a' and <= 'f'))) ||
+            (version.Length == 71 && version.StartsWith("sha256:") && version[7..].All(c => c is (>= '0' and <= '9') or (>= 'a' and <= 'f'))))
         {
             return null;
         }
@@ -441,7 +439,7 @@ class Actions
         return (ownerRepo, version);
     }
 
-    static async Task<bool> CloneRepos(string entity, string folder, string[] excludeRepos, string[] teams)
+    static async Task<bool> CloneRepos(string entity, string folder, string[] excludeRepos, string[] teams, int maxsizekb)
     {
         var parallelism = GetDefaultParallelism();
 
@@ -450,9 +448,9 @@ class Actions
             Logger.LogInformation("Deleting folder: '{Folder}'", folder);
             Directory.Delete(folder, true);
         }
-        Directory.CreateDirectory(folder);
+        _ = Directory.CreateDirectory(folder);
 
-        var repourls = await GetRepos(entity, excludeRepos, teams);
+        var repourls = await GetRepoUrls(entity, excludeRepos, teams, maxsizekb);
         if (repourls == null)
         {
             return false;
@@ -529,66 +527,72 @@ class Actions
         return true;
     }
 
-    static async Task<string[]?> GetRepos(string entity, string[] excludeRepos, string[] teams)
+    static async Task<string[]?> GetRepoUrls(string entity, string[] excludeRepos, string[] teams, int maxsizekb)
     {
-        var repos = (teams.Length == 0 ?
+        GithubRepository[] repos = [.. teams.Length == 0 ?
             (await Github.GetAllRepos(entity)) :
-            (await Github.GetAllTeamRepositories(entity, teams)).Where(r => r.role_name != "read").GroupBy(r => r.clone_url).Select(g => g.First())).ToArray();
+            (await Github.GetAllTeamRepositories(entity, teams)).Where(r => r.role_name != "read").GroupBy(r => r.clone_url).Select(g => g.First()) ];
 
         if (repos.Length == 0)
         {
             Logger.LogInformation("Error: No repos found for: '{Entity}'", entity);
             return null;
         }
+        var orgCount = repos.Length;
         Logger.LogInformation("Found {RepoCount} repos.", repos.Length);
 
         var excludeRepos2 = File.Exists("excluderepos.txt") ? File.ReadAllLines("excluderepos.txt") : excludeRepos;
 
-        var archived = 0;
-        var invalid = 0;
-        var excluded = 0;
+        var archivedCount = 0;
+        var toobigCount = 0;
+        var excludedCount = 0;
+        var invalidCount = 0;
 
         List<string> filteredRepoUrls = [];
         foreach (var repo in repos)
         {
+            var ignore = false;
+
             if (repo.archived)
             {
-                archived++;
-                continue;
+                archivedCount++;
+                ignore = true;
             }
-
+            if (maxsizekb >= 0 && repo.size > maxsizekb)
+            {
+                toobigCount++;
+                ignore = true;
+            }
             if (excludeRepos2.Contains(repo.name))
             {
-                excluded++;
-                continue;
+                excludedCount++;
+                ignore = true;
             }
 
-            if (!repo.clone_url.StartsWith("https://"))
-            {
-                invalid++;
-                Logger.LogInformation("Ignoring invalid repo url: '{RepoUrl}'", repo.clone_url);
-                continue;
-            }
             var reponame = SubstringAfterNthIndexOf(repo.clone_url, '/', 4);
             var index = reponame.IndexOf('/');
             if (index >= 0)
             {
                 reponame = reponame[..index];
             }
-            if (reponame.Length == 0)
+            if (!repo.clone_url.StartsWith("https://") || reponame.Length == 0)
             {
-                invalid++;
+                invalidCount++;
+                ignore = true;
                 Logger.LogInformation("Ignoring invalid repo url: '{RepoUrl}'", repo.clone_url);
-                continue;
             }
-            Logger.LogInformation("Repo name: '{RepoName}'", reponame);
 
-            filteredRepoUrls.Add(repo.clone_url);
+            if (!ignore)
+            {
+                Logger.LogInformation("Repo name: '{RepoName}'", reponame);
+                filteredRepoUrls.Add(repo.clone_url);
+            }
         }
 
-        var repourls = filteredRepoUrls.ToArray();
+        string[] repourls = [.. filteredRepoUrls];
         Array.Sort(repourls);
-        Logger.LogInformation("Filtered to {RepoCount} repos ({ArchivedCount} archived, {ExcludedCount} excluded, {InvalidCount} invalid).", repourls.Length, archived, excluded, invalid);
+        Logger.LogInformation("Filtered from {OrgCount} to {RepoCount} repos ({ArchivedCount} archived, {ToobigCount} too big, {ExcludedCount} excluded, {InvalidCount} invalid).",
+            orgCount, repourls.Length, archivedCount, toobigCount, excludedCount, invalidCount);
 
         return repourls;
     }
