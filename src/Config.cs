@@ -26,7 +26,7 @@ public class Config
         get
         {
             var envvalue = Environment.GetEnvironmentVariable("GITHUB_ORGNAME");
-            return !string.IsNullOrWhiteSpace(envvalue) ? envvalue : ConfigFile.githuborgname;
+            return string.IsNullOrWhiteSpace(envvalue) ? ConfigFile.githuborgname : envvalue;
         }
     }
 
@@ -35,7 +35,7 @@ public class Config
         get
         {
             var envvalue = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
-            return !string.IsNullOrWhiteSpace(envvalue) ? envvalue : ConfigFile.githubtoken;
+            return string.IsNullOrWhiteSpace(envvalue) ? ConfigFile.githubtoken : envvalue;
         }
     }
 
@@ -44,7 +44,7 @@ public class Config
         get
         {
             var envvalue = Environment.GetEnvironmentVariable("GIT_USEREMAIL");
-            return !string.IsNullOrWhiteSpace(envvalue) ? envvalue : ConfigFile.gituseremail;
+            return string.IsNullOrWhiteSpace(envvalue) ? ConfigFile.gituseremail : envvalue;
         }
     }
 
@@ -53,7 +53,7 @@ public class Config
         get
         {
             var envvalue = Environment.GetEnvironmentVariable("GIT_USERNAME");
-            return !string.IsNullOrWhiteSpace(envvalue) ? envvalue : ConfigFile.gitusername;
+            return string.IsNullOrWhiteSpace(envvalue) ? ConfigFile.gitusername : envvalue;
         }
     }
 }

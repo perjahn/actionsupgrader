@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 public class GithubRepository
 {
     public string name { get; set; } = string.Empty;
+    public bool fork { get; set; }
     public string clone_url { get; set; } = string.Empty;
     //public string default_branch { get; set; } = string.Empty;
     public string role_name { get; set; } = string.Empty;
@@ -61,7 +62,6 @@ public class ConfigLogging
 public class ConfigFile
 {
     public ConfigLogging Logging { get; set; } = new();
-    public string AllowedHosts { get; set; } = string.Empty;
     public string githuborgname { get; set; } = string.Empty;
     public string githubtoken { get; set; } = string.Empty;
     public string gituseremail { get; set; } = string.Empty;

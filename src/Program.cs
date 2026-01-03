@@ -12,10 +12,12 @@ class Program
         var dryRun = ArgumentParser.Flag(parsedArgs, "-d");
         var excludeRepos = ArgumentParser.String(parsedArgs, "-e", string.Empty);
         var folder = ArgumentParser.String(parsedArgs, "-f", "/tmp/actionsupgrader_repos");
+        var noforks = ArgumentParser.Flag(parsedArgs, "-k");
         var maxsizekb = ArgumentParser.Int(parsedArgs, "-m", -1);
         var splitPRs = ArgumentParser.Flag(parsedArgs, "-s");
         var teams = ArgumentParser.String(parsedArgs, "-t", string.Empty);
         var isUser = ArgumentParser.Flag(parsedArgs, "-u");
+        var approve = ArgumentParser.Flag(parsedArgs, "-y");
         var entity = (isUser ? "users/" : "orgs/") + Config.GithubOrgName;
 
         if (parsedArgs.Count != 0 ||
@@ -25,16 +27,18 @@ class Program
             Config.GitUserEmail == string.Empty)
         {
             var usage =
-                "Usage: actionsupgrader [-c] [-d] [-e repo] [-f folder] [-m size] [-s] [-t team] [-u]\n" +
+                "Usage: actionsupgrader [-c] [-d] [-e repo] [-f folder] [-k] [-m size] [-s] [-t team] [-u] [-y]\n" +
                 "\n" +
                 "-c:   Don't clone any repos, assume they are already in the local file system.\n" +
                 "-d:   Dry-run, don't push/skip PR creation and only update the local repos.\n" +
                 "-e:   Comma separated list of repo names to exclude.\n" +
                 "-f:   Scratch folder, default is '/tmp/actionsupgrader_repos'\n" +
+                "-k:   Ignore forked repos.\n" +
                 "-m:   Filter repos for max size in kb of the .git folder, transferred over the network.\n" +
                 "-s:   Split PRs, create one PR per action.\n" +
                 "-t:   Only update repos for particular team. Comma separated list of team names.\n" +
                 "-u:   Github user instead of organization.\n" +
+                "-y:   Approve push.\n" +
                 "\n" +
                 "Mandatory environment variables:\n" +
                 "GITHUB_ORGNAME:  Github organization name (or user name, with -u).\n" +
@@ -50,7 +54,7 @@ class Program
             excludeRepos.Split(',', StringSplitOptions.RemoveEmptyEntries),
             teams.Split(',', StringSplitOptions.RemoveEmptyEntries),
             maxsizekb,
-            dontClone, splitPRs, dryRun);
+            dontClone, splitPRs, dryRun, noforks, approve);
 
         return success ? 0 : 1;
     }

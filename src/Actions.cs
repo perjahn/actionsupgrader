@@ -27,31 +27,31 @@ class Actions
     {
         // This scaling is based on empirical experience and need to work for both build agents and local machines.
         // Some cases:
-        // * Linux build agents in k8s on VMs with 4-8 vcores.
+        // * Linux build agents in k8s on VMs with 4-8 vcpus.
         // * Laptops with 8-16 cores (8-16 cpu threads) when using win/mac.
         // * Docker in linux on 64 cores (128 cpu threads).
         // Adjust the default scaling if desired, but motivate why in this comment.
 
         var cores = Environment.ProcessorCount;
-        if (cores >= 32)
+        if (cores >= 16)
         {
             return cores / 2;
         }
-        else if (cores >= 16)
+        else if (cores >= 8)
         {
-            return 16;
+            return 8;
         }
 
         return cores;
     }
 
-    public static async Task<bool> UpdateActions(string entity, string folder, string[] excludeRepos, string[] teams, int maxsizekb, bool dontClone, bool splitPRs, bool dryRun)
+    public static async Task<bool> UpdateActions(string entity, string folder, string[] excludeRepos, string[] teams, int maxsizekb, bool dontClone, bool splitPRs, bool dryRun, bool noforks, bool approve)
     {
         var now = DateTime.Now;
 
         if (!dontClone)
         {
-            var cloneresult = await CloneRepos(entity, folder, excludeRepos, teams, maxsizekb);
+            var cloneresult = await CloneRepos(entity, folder, excludeRepos, teams, maxsizekb, noforks);
             if (!cloneresult)
             {
                 return false;
@@ -60,27 +60,29 @@ class Actions
 
         var steps = await GetStepsToUpdate(folder);
 
-        var success = await CreatePRs(entity, steps, splitPRs, now, dryRun);
+        var success = await CreatePRs(entity, steps, splitPRs, now, dryRun, approve);
 
         Statistics.ShowStatistics(steps);
 
         return success;
     }
 
-    static async Task<bool> CreatePRs(string entity, List<UpdateStep> steps, bool splitPRs, DateTime now, bool dryRun)
+    static async Task<bool> CreatePRs(string entity, List<UpdateStep> steps, bool splitPRs, DateTime now, bool dryRun, bool approve)
     {
         if (splitPRs)
         {
             throw new NotImplementedException("Non-combined PRs are not yet supported.");
         }
 
-        IGrouping<string, UpdateStep>[] repoSteps = [.. steps.GroupBy(s => s.RepoName).OrderBy(s => s.Key)];
+        IGrouping<string, UpdateStep>[] allSteps = [.. steps.GroupBy(s => s.RepoName).OrderBy(s => s.Key)];
 
         var success = true;
 
-        foreach (var repo in repoSteps)
+        List<(int? updateNumber, string? updateTitle, string repoFolder, string remoteBranch, string owner, string repoName, string title, string message, string defaultBranch)> pushPRs = [];
+
+        foreach (var repoSteps in allSteps)
         {
-            IGrouping<string, UpdateStep>[] workflowFileSteps = [.. repo.GroupBy(s => s.WorkflowFile).OrderBy(s => s.Key)];
+            IGrouping<string, UpdateStep>[] workflowFileSteps = [.. repoSteps.GroupBy(s => s.WorkflowFile).OrderBy(s => s.Key)];
 
             foreach (var workflowFile in workflowFileSteps)
             {
@@ -90,17 +92,17 @@ class Actions
                 }
             }
 
-            var repoName = repo.Key;
-            var title = $"Updated {repo.Count()} github actions.";
+            var repoName = repoSteps.Key;
+            var title = $"Updated {repoSteps.Count()} github actions.";
             var message = "Hello dear maintainer!\n\n" +
                           "I have updated the following github actions:\n\n" +
-                          string.Join("\n", repo.OrderBy(s => CleanWorkflowName(s.WorkflowName)).ThenBy(s => s.StepName).Select(s => $"* {CleanWorkflowName(s.WorkflowName)}: {s.StepName} ({s.OldVersion} -> {s.Version})")) +
+                          string.Join("\n", repoSteps.OrderBy(s => CleanWorkflowName(s.WorkflowName)).ThenBy(s => s.StepName).Select(s => $"* {CleanWorkflowName(s.WorkflowName)}: {s.StepName} ({s.OldVersion} -> {s.Version})")) +
                           "\n\n" +
                           "Please review and merge this PR.\n\n" +
                           "Thanks!";
             var remoteBranch = $"actionsupgrader-{now:yyyyMMdd}";
 
-            var repoFolder = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(repo.First().WorkflowFile))) ?? string.Empty;
+            var repoFolder = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(repoSteps.First().WorkflowFile))) ?? string.Empty;
 
             Logger.LogInformation("Repo: '{RepoFolder}'", repoFolder);
 
@@ -109,19 +111,19 @@ class Actions
 
             var owner = entity.Split('/')[1];
 
-            var prs = await Github.GetPRs(owner, repoName);
-            foreach (var pr in prs)
+            var repoPRs = await Github.GetPRs(owner, repoName);
+            foreach (var pr in repoPRs)
             {
                 Logger.LogInformation("PR: Title: '{Title}', Head (from): '{From}', Base (to): '{To}'", pr.title, pr.head.refx, pr.basex.refx);
             }
 
-            var foundIdenticalPR = prs.FirstOrDefault(pr => pr.head.refx.Length == remoteBranch.Length && pr.head.refx.StartsWith("actionsupgrader-") && pr.title == title && pr.body == message);
+            var foundIdenticalPR = repoPRs.FirstOrDefault(pr => pr.head.refx.Length == remoteBranch.Length && pr.head.refx.StartsWith("actionsupgrader-") && pr.title == title && pr.body == message);
             if (foundIdenticalPR != null)
             {
-                Logger.LogInformation("Not updating PR: '{Title}'", foundIdenticalPR.title);
+                Logger.LogInformation("Not updating existing PR: '{Title}'", foundIdenticalPR.title);
                 continue;
             }
-            foreach (var step in repo)
+            foreach (var step in repoSteps)
             {
                 step.Pushed = true;
             }
@@ -134,19 +136,40 @@ class Actions
 
             Git.Commit(repoFolder, title);
 
-            Git.Push(repoFolder, remoteBranch, dryRun);
-
-            var foundPR = prs.FirstOrDefault(pr => pr.head.refx.Length == remoteBranch.Length && pr.head.refx.StartsWith("actionsupgrader-"));
+            var foundPR = repoPRs.FirstOrDefault(pr => pr.head.refx.Length == remoteBranch.Length && pr.head.refx.StartsWith("actionsupgrader-"));
             if (foundPR == null)
             {
-                Logger.LogInformation("Creating PR: '{Title}'", title);
-                await Github.CreatePR(owner, repoName, title, message, remoteBranch, defaultBranch, dryRun);
+                pushPRs.Add((null, null, repoFolder, remoteBranch, owner, repoName, title, message, defaultBranch));
             }
             else
             {
-                Logger.LogInformation("Updating PR: '{Title}'", foundPR.title);
-                await Github.UpdatePR(owner, repoName, foundPR.number, title, message, remoteBranch, defaultBranch, dryRun);
+                pushPRs.Add((foundPR.number, foundPR.title, repoFolder, remoteBranch, owner, repoName, title, message, defaultBranch));
             }
+        }
+
+        if (approve)
+        {
+            Logger.LogInformation("Creating/updating PRs: {PRCount}", pushPRs.Count);
+
+            foreach (var (updateNumber, updateTitle, repoFolder, remoteBranch, owner, repoName, title, message, defaultBranch) in pushPRs)
+            {
+                Git.Push(repoFolder, remoteBranch, dryRun);
+
+                if (updateNumber == null)
+                {
+                    Logger.LogInformation("Creating PR: '{Title}'", title);
+                    await Github.CreatePR(owner, repoName, title, message, remoteBranch, defaultBranch, dryRun);
+                }
+                else
+                {
+                    Logger.LogInformation("Updating PR: '{Title}'", updateTitle);
+                    await Github.UpdatePR(owner, repoName, updateNumber.Value, title, message, remoteBranch, defaultBranch, dryRun);
+                }
+            }
+        }
+        else
+        {
+            Logger.LogInformation("Not creating/updating PRs: {PRCount}", pushPRs.Count);
         }
 
         return success;
@@ -439,7 +462,7 @@ class Actions
         return (ownerRepo, version);
     }
 
-    static async Task<bool> CloneRepos(string entity, string folder, string[] excludeRepos, string[] teams, int maxsizekb)
+    static async Task<bool> CloneRepos(string entity, string folder, string[] excludeRepos, string[] teams, int maxsizekb, bool noforks)
     {
         var parallelism = GetDefaultParallelism();
 
@@ -450,25 +473,25 @@ class Actions
         }
         _ = Directory.CreateDirectory(folder);
 
-        var repourls = await GetRepoUrls(entity, excludeRepos, teams, maxsizekb);
+        var repourls = await GetRepoUrls(entity, excludeRepos, teams, maxsizekb, noforks);
         if (repourls == null)
         {
             return false;
         }
 
-        List<Process> processes = [];
+        List<(Process process, string repourl)> processes = [];
 
         var repocount = 0;
         foreach (var repourl in repourls)
         {
             repocount++;
 
-            while (processes.Count(p => { p.Refresh(); return !p.HasExited; }) >= parallelism)
+            while (processes.Count(p => { p.process.Refresh(); return !p.process.HasExited; }) >= parallelism)
             {
                 await Task.Delay(100);
             }
 
-            var cloneurl = $"https://{Config.GithubToken}@{repourl[8..]}";
+            var cloneurl = Config.GithubToken != string.Empty ? $"https://{Config.GithubToken}@{repourl[8..]}" : repourl;
 
             var clonefolder = SubstringAfterNthIndexOf(repourl, '/', 4);
             var index = clonefolder.IndexOf('/');
@@ -487,38 +510,38 @@ class Actions
             }
             else
             {
-                processes.Add(process);
+                processes.Add((process, repourl));
             }
         }
 
         var logtimer = 0;
-        while (processes.Any(p => { p.Refresh(); return !p.HasExited; }))
+        while (processes.Any(p => { p.process.Refresh(); return !p.process.HasExited; }))
         {
             await Task.Delay(100);
 
             logtimer++;
             if (logtimer % 100 == 0)
             {
-                List<int> stillRunning = [];
-                for (var i = 0; i < processes.Count; i++)
+                List<(Process process, string repourl)> stillRunning = [];
+                foreach (var process in processes)
                 {
-                    processes[i].Refresh();
-                    if (!processes[i].HasExited)
+                    process.process.Refresh();
+                    if (!process.process.HasExited)
                     {
-                        stillRunning.Add(i);
+                        stillRunning.Add(process);
                     }
                 }
 
                 if (logtimer < 20000)
                 {
-                    Logger.LogInformation("Still running: {RepoUrls}", stillRunning.Select(i => repourls[i]));
+                    Logger.LogInformation("Still running: {RepoUrls}", stillRunning.Select(p => p.repourl));
                 }
                 else
                 {
-                    foreach (var i in stillRunning)
+                    foreach (var (process, repourl) in stillRunning)
                     {
-                        Logger.LogInformation("Killing: '{RepoUrl}'", repourls[i]);
-                        processes[i].Kill(entireProcessTree: true);
+                        Logger.LogInformation("Killing: '{RepoUrl}'", repourl);
+                        process.Kill(entireProcessTree: true);
                     }
                 }
             }
@@ -527,7 +550,7 @@ class Actions
         return true;
     }
 
-    static async Task<string[]?> GetRepoUrls(string entity, string[] excludeRepos, string[] teams, int maxsizekb)
+    static async Task<string[]?> GetRepoUrls(string entity, string[] excludeRepos, string[] teams, int maxsizekb, bool noforks)
     {
         GithubRepository[] repos = [.. teams.Length == 0 ?
             (await Github.GetAllRepos(entity)) :
@@ -545,6 +568,7 @@ class Actions
 
         var archivedCount = 0;
         var toobigCount = 0;
+        var forkCount = 0;
         var excludedCount = 0;
         var invalidCount = 0;
 
@@ -561,6 +585,11 @@ class Actions
             if (maxsizekb >= 0 && repo.size > maxsizekb)
             {
                 toobigCount++;
+                ignore = true;
+            }
+            if (noforks && repo.fork)
+            {
+                forkCount++;
                 ignore = true;
             }
             if (excludeRepos2.Contains(repo.name))
@@ -591,8 +620,8 @@ class Actions
 
         string[] repourls = [.. filteredRepoUrls];
         Array.Sort(repourls);
-        Logger.LogInformation("Filtered from {OrgCount} to {RepoCount} repos ({ArchivedCount} archived, {ToobigCount} too big, {ExcludedCount} excluded, {InvalidCount} invalid).",
-            orgCount, repourls.Length, archivedCount, toobigCount, excludedCount, invalidCount);
+        Logger.LogInformation("Filtered from {OrgCount} to {RepoCount} repos ({ArchivedCount} archived, {ToobigCount} too big, {ForkCount} forks, {ExcludedCount} excluded, {InvalidCount} invalid).",
+            orgCount, repourls.Length, archivedCount, toobigCount, forkCount, excludedCount, invalidCount);
 
         return repourls;
     }
